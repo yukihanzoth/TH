@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ระบบแจ้งซ่อมคอมพิวเตอร์ออนไลน์</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);--bg:#f3f6fb;--card:#fff;--tx:#14213d;--mu:#64708a;--bd:#dde4f0;--pr:#2563eb;--prt:#fff}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1626;--card:#18223a;--tx:#e8eefc;--mu:#93a1c0;--bd:#2a3858;--pr:#5b8cff;--prt:#0b1020}}
+:root[data-theme="dark"]{--bg:#0f1626;--card:#18223a;--tx:#e8eefc;--mu:#93a1c0;--bd:#2a3858;--pr:#5b8cff;--prt:#0b1020}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font-family:"Sarabun","Noto Sans Thai",system-ui,sans-serif;font-size:15px}
+header{background:var(--pr);color:var(--prt);padding:12px 16px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+header b{font-size:17px}
+main{max-width:900px;margin:0 auto;padding:14px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-bottom:12px}
+.tabs{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
+button,.btn{font:inherit;border:1px solid var(--bd);background:var(--card);color:var(--tx);border-radius:8px;padding:8px 14px;cursor:pointer}
+button.on,button.p{background:var(--pr);color:var(--prt);border-color:var(--pr)}
+label{display:block;font-size:13px;color:var(--mu);margin:8px 0 3px}
+input,select,textarea{width:100%;font:inherit;padding:8px;border:1px solid var(--bd);border-radius:8px;background:var(--bg);color:var(--tx)}
+.g{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:0 12px}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px}
+.stat{text-align:center;padding:14px 6px}.stat b{display:block;font-size:30px}.stat span{color:var(--mu)}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid var(--bd);cursor:pointer;flex-wrap:wrap}
+.row:last-child{border:0}
+.badge{padding:3px 10px;border-radius:99px;font-size:12px;background:var(--bd);white-space:nowrap}
+.s0{background:#fde68a;color:#78350f}.s1{background:#bfdbfe;color:#1e3a8a}.s2{background:#fed7aa;color:#7c2d12}.s3{background:#e9d5ff;color:#581c87}.s4,.s5{background:#bbf7d0;color:#14532d}.s6{background:#fecaca;color:#7f1d1d}
+.steps{display:flex;gap:4px;margin:10px 0;overflow-x:auto}
+.st{flex:1;min-width:70px;text-align:center;font-size:11px;color:var(--mu);border-top:4px solid var(--bd);padding-top:4px}
+.st.d{border-color:var(--pr);color:var(--tx);font-weight:600}
+.mu{color:var(--mu);font-size:13px}
+img.ph{max-width:100%;max-height:200px;border-radius:8px;margin-top:6px}
+#modal{position:fixed;inset:0;background:#0008;display:none;align-items:flex-start;justify-content:center;overflow:auto;padding:16px}
+#modal>div{background:var(--card);border-radius:12px;padding:16px;max-width:620px;width:100%}
+.err{color:#dc2626;font-size:13px}
+</style>
+</head>
+<body>
+<header><b>🖥️ IT REPAIR SYSTEM</b><span id="me"></span></header>
+<main id="app"></main>
+<div id="modal"></div>
+<script>
+const ST=['รอรับงาน','รับงานแล้ว','กำลังซ่อม','รออะไหล่','ซ่อมเสร็จ','ปิดงาน','ยกเลิก'];
+const ROLE={student:'นักเรียน',staff:'เจ้าหน้าที่',admin:'แอดมิน'};
+const BOOT={admin:{pw:'12345',name:'ผู้ดูแลระบบ',role:'admin'},it:{pw:'12345',name:'เจ้าหน้าที่ IT',role:'staff'}};
+const PT=['เปิดไม่ติด','Windows/ระบบเสีย','อินเทอร์เน็ตใช้ไม่ได้','ช้า/ค้าง','จอภาพมีปัญหา','เครื่องพิมพ์','อื่น ๆ'];
+const D={repairs:[],users:[],logs:[]},C={};
+let me=null,tab='',regMode=false,flt='',H={q:'',d:'',s:''};
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const now=()=>new Date().toLocaleString('th-TH',{dateStyle:'short',timeStyle:'short'});
+const iso=()=>new Date().toISOString().slice(0,10);
+const th=d=>d?new Date(d).toLocaleDateString('th-TH'):'-';
+const sha=async s=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s)))].map(b=>b.toString(16).padStart(2,'0')).join('');
+const isStaff=()=>me.role!=='student';
+const live=()=>me&&tab!=='new'&&$('#modal').style.display!=='flex';
+async function init(){
+  let db=null;try{db=window.claude&&await claude.use('db')}catch(e){}
+  for(const n of ['repairs','users','logs']){
+    if(db){C[n]=db.collection(n);C[n].onSnapshot(x=>{D[n]=x.docs.map(d=>d.data());if(live())render()},()=>{})}
+    else try{D[n]=JSON.parse(localStorage.getItem(n)||'[]')}catch(e){}}
+  render();
+}
+async function put(n,o,k){
+  const a=D[n],i=a.findIndex(x=>x[k]===o[k]);i<0?a.push(o):a[i]=o;
+  if(C[n]){try{await C[n].doc(o[k]).set(o)}catch(e){alert('บันทึกไม่สำเร็จ')}}
+  else try{localStorage.setItem(n,JSON.stringify(a))}catch(e){}
+}
+async function del(n,k,id){
+  D[n]=D[n].filter(x=>x[k]!==id);
+  if(C[n]){try{await C[n].doc(id).delete()}catch(e){}}else try{localStorage.setItem(n,JSON.stringify(D[n]))}catch(e){}
+}
+const sorted=a=>[...a].sort((x,y)=>y.id.localeCompare(x.id));
+const own=()=>sorted(D.repairs.filter(t=>t.ownerId===me.uid));
+const badge=s=>`<span class="badge s${s}">${ST[s]}</span>`;
+// ---------- auth ----------
+function login(){
+  $('#me').innerHTML='';
+  $('#app').innerHTML=`<div class="card" style="max-width:380px;margin:30px auto"><h3>${regMode?'สมัครสมาชิก (นักเรียน)':'เข้าสู่ระบบ'}</h3>
+  ${regMode?'<label>ชื่อ-นามสกุล</label><input id="n"><label>รหัสนักเรียน</label><input id="c">':''}
+  <label>ชื่อผู้ใช้</label><input id="u" autocomplete="username"><label>รหัสผ่าน</label><input id="p" type="password">
+  <p class="err" id="e"></p><button class="p" style="width:100%" onclick="${regMode?'doReg()':'doLogin()'}">${regMode?'สมัครสมาชิก':'เข้าสู่ระบบ'}</button>
+  <p><a href="#" onclick="regMode=!regMode;render();return false">${regMode?'มีบัญชีแล้ว? เข้าสู่ระบบ':'ยังไม่มีบัญชี? สมัครสมาชิก'}</a></p>
+  <p class="mu">ทดลอง: เจ้าหน้าที่ it  · แอดมิน admin </p></div>`;
+}
+async function doLogin(){
+  const id=$('#u').value.trim(),pw=$('#p').value,b=BOOT[id];
+  if(b&&b.pw===pw){me={uid:id,name:b.name,role:b.role,code:''};tab=b.role==='student'?'new':'dash';return render()}
+  const u=D.users.find(x=>x.username===id);
+  if(!u||u.hash!==await sha(pw)){$('#e').textContent='ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง';return}
+  const r=u.role==='staff'||u.role==='admin'?u.role:'student';
+  me={uid:u.user_id,name:u.name,role:r,code:u.code||''};tab=r==='student'?'new':'dash';render();
+}
+async function mkUser(id,n,code,pw,role){
+  if(!id||!n||pw.length<4)return 'กรอกชื่อ ชื่อผู้ใช้ และรหัสผ่านอย่างน้อย 4 ตัว';
+  if(BOOT[id]||D.users.some(x=>x.username===id))return 'ชื่อผู้ใช้นี้ถูกใช้แล้ว';
+  const u={user_id:'U'+Date.now(),name:n,code,username:id,hash:await sha(pw),role};
+  await put('users',u,'user_id');return u;
+}
+async function doReg(){
+  const r=await mkUser($('#u').value.trim(),$('#n').value.trim(),$('#c').value.trim(),$('#p').value,'student');
+  if(typeof r==='string'){$('#e').textContent=r;return}
+  me={uid:r.user_id,name:r.name,role:'student',code:r.code};tab='new';render();
+}
+function logout(){me=null;render()}
+// ---------- shell ----------
+function render(){
+  if(!me)return login();
+  $('#me').innerHTML=`${esc(me.name)} (${ROLE[me.role]}) <button onclick="logout()">ออก</button>`;
+  const T=isStaff()?[['dash','Dashboard'],['all','งานทั้งหมด'],['hist','ประวัติ'],['stat','สถิติ']]:[['new','แจ้งซ่อม'],['mine','งานของฉัน'],['hist','ประวัติ']];
+  if(me.role==='admin')T.push(['users','ผู้ใช้']);
+  if(!T.some(t=>t[0]===tab))tab=T[0][0];
+  const V={new:formView,mine:()=>listView(own().filter(t=>t.status<4)),hist:histView,dash:dashView,all:allView,stat:statView,users:usersView};
+  $('#app').innerHTML=`<div class="tabs">${T.map(t=>`<button class="${tab===t[0]?'on':''}" onclick="tab='${t[0]}';render()">${t[1]}</button>`).join('')}</div>`+V[tab]();
+}
+function listView(a){
+  if(!a.length)return '<div class="card mu">ไม่มีรายการ</div>';
+  return `<div class="card">${a.map(t=>`<div class="row" onclick="openT('${t.id}')"><div><b>${t.id}</b><div class="mu">${esc(t.machine)||'-'} · ${esc(t.ptype)} · ${esc(t.location)} · ${th(t.dateISO)}</div></div>${badge(t.status)}</div>`).join('')}</div>`}
+// ---------- student ----------
+function formView(){return `<div class="card"><h3>แจ้งซ่อมคอมพิวเตอร์</h3><div class="g">
+<div><label>ชื่อผู้แจ้ง</label><input id="f_name" value="${esc(me.name)}"></div><div><label>รหัสนักเรียน/พนักงาน</label><input id="f_code" value="${esc(me.code)}"></div>
+<div><label>ห้อง/สถานที่</label><input id="f_loc"></div><div><label>เบอร์โทร</label><input id="f_phone" type="tel"></div>
+<div><label>รหัสเครื่อง/ครุภัณฑ์</label><input id="f_mach"></div>
+<div><label>ประเภทปัญหา</label><select id="f_pt">${PT.map(p=>`<option>${p}</option>`).join('')}</select></div></div>
+<label>รายละเอียดปัญหา</label><textarea id="f_det" rows="3"></textarea>
+<label>รูปภาพปัญหา (ถ้ามี)</label><input id="f_img" type="file" accept="image/*">
+<label>วันที่แจ้ง</label><input value="${th(iso())}" disabled>
+<p class="err" id="fe"></p><button class="p" onclick="submitForm()">ส่งแจ้งซ่อม</button></div>`}
+function shrink(file){return new Promise(r=>{if(!file)return r('');const im=new Image();im.onload=()=>{const k=Math.min(1,480/Math.max(im.width,im.height)),c=document.createElement('canvas');c.width=im.width*k;c.height=im.height*k;c.getContext('2d').drawImage(im,0,0,c.width,c.height);r(c.toDataURL('image/jpeg',.6))};im.onerror=()=>r('');im.src=URL.createObjectURL(file)})}
+async function log(rid,from,to,note){await put('logs',{lid:'L'+Date.now()+Math.random().toString(36).slice(2,5),rid,from,to,note:note||'',by:me.name,time:now(),ts:Date.now()},'lid')}
+async function submitForm(){
+  const v=i=>$('#f_'+i).value.trim();
+  if(!v('name')||!v('loc')||!v('phone')){$('#fe').textContent='กรุณากรอก ชื่อ ห้อง/สถานที่ และเบอร์โทร';return}
+  const n=D.repairs.reduce((m,t)=>Math.max(m,+t.id.split('-')[2]||0),0)+1;
+  const t={id:`REPAIR-${new Date().getFullYear()}-${String(n).padStart(3,'0')}`,ownerId:me.uid,name:v('name'),code:v('code'),location:v('loc'),phone:v('phone'),machine:v('mach'),ptype:v('pt'),detail:v('det'),photo:await shrink($('#f_img').files[0]),dateISO:iso(),doneISO:'',status:0,assignee:'',parts:'',cost:0};
+  await put('repairs',t,'id');await log(t.id,-1,0,'สร้างใบแจ้งซ่อม');
+  alert('ส่งแจ้งซ่อมแล้ว เลขที่ '+t.id);tab='mine';render();
+}
+// ---------- history (all roles; student sees own) ----------
+function histList(){
+  const base=sorted(isStaff()?D.repairs:own()),q=H.q.toLowerCase();
+  return listView(base.filter(t=>(H.s===''||t.status==H.s)&&(!H.d||t.dateISO===H.d)&&(!q||(t.id+t.machine+t.location+t.name).toLowerCase().includes(q))));
+}
+function histView(){return `<div class="card g"><div><label>ค้นหา (เครื่อง/ห้อง/เลขที่)</label><input value="${esc(H.q)}" oninput="H.q=this.value;$('#hl').innerHTML=histList()"></div>
+<div><label>วันที่แจ้ง</label><input type="date" value="${H.d}" oninput="H.d=this.value;$('#hl').innerHTML=histList()"></div>
+<div><label>สถานะ</label><select onchange="H.s=this.value;$('#hl').innerHTML=histList()"><option value="">ทั้งหมด</option>${ST.map((s,i)=>`<option value="${i}" ${H.s==i?'selected':''}>${s}</option>`).join('')}</select></div></div><div id="hl">${histList()}</div>`}
+// ---------- staff ----------
+function dashView(){
+  const c=f=>D.repairs.filter(f).length;
+  return `<div class="stats"><div class="card stat"><b>${c(t=>t.status===0)}</b><span>แจ้งใหม่</span></div><div class="card stat"><b>${c(t=>t.status>=1&&t.status<=3)}</b><span>กำลังซ่อม</span></div><div class="card stat"><b>${c(t=>t.status===4||t.status===5)}</b><span>เสร็จแล้ว</span></div></div>
+  <div class="card"><h3>รายการแจ้งซ่อมล่าสุด</h3>${sorted(D.repairs).slice(0,8).map(t=>`<div class="row" onclick="openT('${t.id}')"><span>#${t.id.slice(-3)} ${esc(t.ptype)} <span class="mu">· ${esc(t.name)}</span></span>${badge(t.status)}</div>`).join('')||'<span class="mu">ยังไม่มีรายการ</span>'}</div>`}
+function allView(){
+  const a=sorted(D.repairs).filter(t=>flt===''?t.status<4:t.status==flt);
+  return `<div class="card"><label>กรองตามสถานะ</label><select onchange="flt=this.value;render()"><option value="">งานที่ยังไม่จบ</option>${ST.map((s,i)=>`<option value="${i}" ${flt==i?'selected':''}>${s}</option>`).join('')}</select></div>`+listView(a)}
+function statView(){
+  const m={},p={};D.repairs.forEach(t=>{const k=(t.dateISO||'').slice(0,7);m[k]=(m[k]||0)+1;p[t.ptype]=(p[t.ptype]||0)+1});
+  const bars=o=>{const e=Object.entries(o),mx=Math.max(1,...e.map(x=>x[1]));return e.map(([k,v])=>`<div class="row" style="cursor:default;flex-wrap:nowrap"><span style="min-width:110px">${esc(k)}</span><div style="flex:1;background:var(--bd);border-radius:6px"><div style="width:${v/mx*100}%;background:var(--pr);height:12px;border-radius:6px"></div></div><b>${v}</b></div>`).join('')||'<span class="mu">ยังไม่มีข้อมูล</span>'};
+  const cost=D.repairs.reduce((a,t)=>a+(+t.cost||0),0);
+  return `<div class="card"><h3>จำนวนงานแต่ละเดือน</h3>${bars(Object.fromEntries(Object.entries(m).sort().slice(-6)))}</div><div class="card"><h3>ปัญหาที่พบบ่อย</h3>${bars(Object.fromEntries(Object.entries(p).sort((a,b)=>b[1]-a[1])))}</div>
+  <div class="card">ค่าใช้จ่ายรวม <b>${cost}</b> บาท · <button class="p" onclick="exportCsv()">ดาวน์โหลดรายงาน CSV</button></div>`}
+async function exportCsv(){
+  let d=null;try{d=window.claude&&await claude.use('downloads')}catch(e){}
+  if(!d){alert('ดาวน์โหลดไม่พร้อมใช้งานในมุมมองนี้');return}
+  const rows=[['เลขที่','ผู้แจ้ง','รหัส','สถานที่','เครื่อง','ประเภทปัญหา','สถานะ','ผู้รับงาน','อะไหล่','ค่าใช้จ่าย','วันที่แจ้ง','วันที่เสร็จ'],...sorted(D.repairs).map(t=>[t.id,t.name,t.code,t.location,t.machine,t.ptype,ST[t.status],t.assignee,t.parts,t.cost,t.dateISO,t.doneISO])];
+  const csv='\ufeff'+rows.map(r=>r.map(x=>'"'+String(x??'').replace(/"/g,'""')+'"').join(',')).join('\n');
+  try{await d.save({filename:'repair-report.csv',data:csv})}catch(e){}
+}
+// ---------- detail ----------
+function openT(id){
+  const t=D.repairs.find(x=>x.id===id),m=$('#modal'),L=D.logs.filter(l=>l.rid===id).sort((a,b)=>a.ts-b.ts);
+  const tl=L.map(l=>`<div class="mu">${l.time} · ${l.from<0?'สร้างใบแจ้งซ่อม':l.from===l.to?ST[l.to]:ST[l.from]+' → '+ST[l.to]} · ${esc(l.by)}${l.note&&l.from>=0?' — '+esc(l.note):''}</div>`).join('')||'<div class="mu">ยังไม่มีประวัติ</div>';
+  let h=`<h3>${t.id} ${badge(t.status)}</h3><div class="steps">${ST.slice(0,6).map((s,i)=>`<div class="st ${i<=t.status&&t.status<6?'d':''}">${s}</div>`).join('')}</div>
+  <p>${esc(t.name)} ${t.code?'('+esc(t.code)+')':''} · ${esc(t.location)} · ☎ ${esc(t.phone)}<br>เครื่อง: ${esc(t.machine)||'-'}<br><b>${esc(t.ptype)}</b> — ${esc(t.detail)}<br><span class="mu">แจ้ง ${th(t.dateISO)} · เสร็จ ${th(t.doneISO)} · ผู้รับงาน ${esc(t.assignee)||'-'}</span></p>${t.photo?`<img class="ph" src="${t.photo}">`:''}`;
+  if(isStaff())h+=`<hr>${t.status===0?`<p><button class="p" onclick="accept('${id}')">รับงาน</button></p>`:''}
+  <div class="g"><div><label>เปลี่ยนสถานะ</label><select id="m_st">${ST.map((s,i)=>`<option value="${i}" ${t.status===i?'selected':''}>${s}</option>`).join('')}</select></div>
+  <div><label>อะไหล่ที่ใช้</label><input id="m_pt" value="${esc(t.parts)}"></div><div><label>ค่าใช้จ่าย (บาท)</label><input id="m_co" type="number" min="0" value="${t.cost||0}"></div></div>
+  <label>หมายเหตุ</label><textarea id="m_nt" rows="2"></textarea><p><button class="p" onclick="saveT('${id}')">บันทึก</button></p>`;
+  m.innerHTML=`<div>${h}<hr><b>ไทม์ไลน์</b>${tl}<p><button onclick="closeM()">ปิดหน้าต่าง</button></p></div>`;
+  m.style.display='flex';
+}
+function closeM(){$('#modal').style.display='none'}
+async function act(id,to,note,extra){
+  if(!isStaff())return;
+  const t={...D.repairs.find(x=>x.id===id),...extra},from=t.status;
+  if(to!==from){t.status=to;t.doneISO=to>=4?(t.doneISO||iso()):''}
+  await put('repairs',t,'id');
+  if(to!==from||note)await log(id,from,to,note);
+}
+async function accept(id){await act(id,1,'รับงาน',{assignee:me.name});closeM();render();openT(id)}
+async function saveT(id){
+  const to=+$('#m_st').value,t=D.repairs.find(x=>x.id===id);
+  await act(id,to,$('#m_nt').value.trim(),{parts:$('#m_pt').value.trim(),cost:+$('#m_co').value||0,assignee:t.assignee||(to>0?me.name:'')});
+  closeM();render();
+}
+// ---------- admin ----------
+function usersView(){return `<div class="card"><h3>เพิ่มผู้ใช้</h3><div class="g"><div><label>ชื่อ-นามสกุล</label><input id="a_n"></div><div><label>รหัสนักเรียน/พนักงาน</label><input id="a_c"></div><div><label>ชื่อผู้ใช้</label><input id="a_u"></div><div><label>รหัสผ่าน</label><input id="a_p" type="password"></div>
+<div><label>บทบาท</label><select id="a_r"><option value="student">นักเรียน</option><option value="staff">เจ้าหน้าที่</option><option value="admin">แอดมิน</option></select></div></div><p class="err" id="ae"></p><button class="p" onclick="addUser()">เพิ่ม</button></div>
+<div class="card"><h3>ผู้ใช้ทั้งหมด</h3>${D.users.map(u=>`<div class="row" style="cursor:default"><span>${esc(u.name)} <span class="mu">${esc(u.code||'')} · ${esc(u.username)}</span></span><span><select onchange="setRole('${u.user_id}',this.value)">${Object.keys(ROLE).map(r=>`<option value="${r}" ${(u.role===r||(u.role==='user'&&r==='student'))?'selected':''}>${ROLE[r]}</option>`).join('')}</select> <button onclick="rmUser('${u.user_id}')">ลบ</button></span></div>`).join('')||'<span class="mu">ยังไม่มีผู้ใช้</span>'}</div>`}
+async function addUser(){const r=await mkUser($('#a_u').value.trim(),$('#a_n').value.trim(),$('#a_c').value.trim(),$('#a_p').value,$('#a_r').value);if(typeof r==='string')$('#ae').textContent=r;else render()}
+async function setRole(id,r){if(me.role!=='admin')return;await put('users',{...D.users.find(u=>u.user_id===id),role:r},'user_id')}
+async function rmUser(id){if(me.role==='admin'&&confirm('ลบผู้ใช้นี้?')){await del('users','user_id',id);render()}}
+init();
+</script>
+</body>
+</html>
